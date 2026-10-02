@@ -1,0 +1,103 @@
+name: echonote
+x-backend: &backend
+  build: ./backend
+  env_file: .env
+  environment: &backend-env
+    DATABASE_URL: postgresql+psycopg://echonote:${POSTGRES_PASSWORD}@postgres:5432/echonote
+    REDIS_URL: redis://redis:6379/0
+    S3_ENDPOINT_URL: http://minio:9000
+    S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL:-http://localhost:9000}
+    S3_REGION: us-east-1
+    S3_BUCKET: echonote
+    S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+    S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+  restart: unless-stopped
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: echonote
+      POSTGRES_USER: echonote
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    ports: ["127.0.0.1:5432:5432"]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U echonote -d echonote"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory-policy noeviction
+    volumes: [redis-data:/data]
+    ports: ["127.0.0.1:6379:6379"]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+  minio:
+    build: ./storage
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes: [audio-data:/data]
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
+    restart: unless-stopped
+  bucket-init:
+    <<: *backend
+    command: python -m app.init_storage
+    restart: "no"
+    depends_on:
+      minio: {condition: service_started}
+  migrate:
+    <<: *backend
+    command: alembic upgrade head
+    restart: "no"
+    depends_on:
+      postgres: {condition: service_healthy}
+  api:
+    <<: *backend
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      bucket-init: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  worker:
+    <<: *backend
+    command: celery -A app.workers.celery worker --loglevel=INFO --concurrency=2
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      bucket-init: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+  beat:
+    <<: *backend
+    command: celery -A app.workers.celery beat --loglevel=INFO --schedule=/tmp/celerybeat-schedule
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-}
+    restart: unless-stopped
+  gateway:
+    image: nginx:1.28-alpine
+    ports: ["8080:80"]
+    volumes: [./nginx.conf:/etc/nginx/nginx.conf:ro]
+    depends_on:
+      api: {condition: service_healthy}
+      frontend: {condition: service_started}
+    restart: unless-stopped
+volumes:
+  postgres-data:
+  redis-data:
+  audio-data:

@@ -1,0 +1,43 @@
+name: echonote-production
+x-backend: &backend
+  build: ./backend
+  env_file: .env.production
+  restart: unless-stopped
+services:
+  migrate:
+    <<: *backend
+    command: alembic upgrade head
+    restart: "no"
+  api:
+    <<: *backend
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  worker:
+    <<: *backend
+    command: celery -A app.workers.celery worker --loglevel=INFO --concurrency=2
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  beat:
+    <<: *backend
+    command: celery -A app.workers.celery beat --loglevel=INFO --schedule=/tmp/celerybeat-schedule
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-}
+    restart: unless-stopped
+  gateway:
+    image: nginx:1.28-alpine
+    ports: ["127.0.0.1:8080:80"]
+    volumes: [./nginx.conf:/etc/nginx/nginx.conf:ro]
+    depends_on:
+      api: {condition: service_healthy}
+      frontend: {condition: service_started}
+    restart: unless-stopped

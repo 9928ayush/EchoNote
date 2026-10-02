@@ -1,0 +1,29 @@
+{
+  "name": "echonote-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 0.0.0.0",
+    "build": "next build",
+    "start": "node .next/standalone/server.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test:ui": "node tests/ui.mjs",
+    "postbuild": "node -e \"const fs=require('node:fs'); fs.cpSync('public','.next/standalone/public',{recursive:true}); fs.cpSync('.next/static','.next/standalone/.next/static',{recursive:true});\""
+  },
+  "dependencies": {
+    "next": "^15.5.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "^15.5.0",
+    "playwright": "^1.63.0",
+    "typescript": "^5.8.0"
+  }
+}
