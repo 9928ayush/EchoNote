@@ -223,26 +223,6 @@ export default function Page() {
             cannot provide it.
           </p>
         </section>
-        <section>
-          <h2>Provider references</h2>
-          <p>
-            <a
-              href="https://docs.gnani.ai/api/STT/speech-to-text"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Gnani REST API contract
-            </a>{" "}
-            ·{" "}
-            <a
-              href="https://developers.openai.com/api/docs/models/gpt-4.1-mini"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Configured default summary model
-            </a>
-          </p>
-        </section>
       </article>
     </>
   );
