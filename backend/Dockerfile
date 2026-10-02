@@ -14,6 +14,7 @@ COPY app ./app
 COPY migrations ./migrations
 COPY alembic.ini ./
 COPY supervisord.conf ./
+COPY start_render.sh ./
 
 RUN useradd --create-home --uid 10001 appuser
 USER appuser
