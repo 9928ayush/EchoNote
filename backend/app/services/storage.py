@@ -47,3 +47,14 @@ def playback(key: str) -> str:
     return client(True).generate_presigned_url(
         "get_object", Params={"Bucket": settings().s3_bucket, "Key": key}, ExpiresIn=3600
     )
+
+def delete(key: str):
+    try:
+        client().delete_object(
+            Bucket=settings().s3_bucket,
+            Key=key,
+        )
+    except (BotoCoreError, ClientError) as exc:
+        raise ServiceError(
+            "The recording could not be deleted from storage. Please retry."
+        ) from exc

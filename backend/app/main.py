@@ -29,7 +29,7 @@ app = FastAPI(title="EchoNote", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings().cors_origins,
-    allow_methods=["GET", "POST", "PUT"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Content-Type"],
     allow_credentials=False,
 )
@@ -300,3 +300,54 @@ def retry_note(note_id: uuid.UUID, db: DBSession = Depends(get_session)):
     note.updated_at, note.dispatched_at = now(), None
     db.commit()
     return serialize(note)
+
+@app.delete("/api/audio-notes/{note_id}")
+def delete_note(note_id: uuid.UUID):
+    lock_key = int.from_bytes(note_id.bytes[:8], "big", signed=True)
+
+    with engine.connect() as lock:
+        acquired = lock.execute(
+            text("SELECT pg_try_advisory_lock(:key)"),
+            {"key": lock_key},
+        ).scalar()
+        lock.commit()
+
+        if not acquired:
+            raise HTTPException(
+                409,
+                "This recording is being uploaded or processed. Try again when it finishes.",
+            )
+
+        try:
+            with Session.begin() as db:
+                note = db.scalar(
+                    select(AudioNote)
+                    .where(AudioNote.id == note_id)
+                    .with_for_update()
+                )
+
+                # Repeated deletion requests are safe.
+                if note is None:
+                    return {"deleted": True, "id": str(note_id)}
+
+                try:
+                    storage.delete(note.storage_key)
+                except ServiceError as exc:
+                    log.exception(
+                        "delete_storage_failed",
+                        extra={"audio_note_id": str(note_id)},
+                    )
+                    raise HTTPException(
+                        503,
+                        "Could not delete the audio file. Please retry.",
+                    ) from exc
+
+                db.delete(note)
+
+            return {"deleted": True, "id": str(note_id)}
+        finally:
+            lock.execute(
+                text("SELECT pg_advisory_unlock(:key)"),
+                {"key": lock_key},
+            )
+            lock.commit()
